@@ -20,7 +20,8 @@ module.exports = async (req, res) => {
       hasPrivateKey: !!process.env.GITHUB_PRIVATE_KEY,
       hasClientId: !!process.env.GITHUB_CLIENT_ID,
       hasClientSecret: !!process.env.GITHUB_CLIENT_SECRET,
-      appId: process.env.GITHUB_APP_ID ? process.env.GITHUB_APP_ID.substring(0, 3) + '...' : 'missing'
+      appId: process.env.GITHUB_APP_ID ? process.env.GITHUB_APP_ID.substring(0, 3) + '...' : 'missing',
+      privateKeyStart: process.env.GITHUB_PRIVATE_KEY ? process.env.GITHUB_PRIVATE_KEY.substring(0, 20) + '...' : 'missing'
     };
 
     if (!process.env.GITHUB_APP_ID || !process.env.GITHUB_PRIVATE_KEY) {
@@ -32,13 +33,34 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Test GitHub App connection
+    // Test GitHub App connection step by step
+    console.log("Creating GitHub App with:", {
+      appId: process.env.GITHUB_APP_ID,
+      hasPrivateKey: !!process.env.GITHUB_PRIVATE_KEY
+    });
+
     const app = new App({
       appId: process.env.GITHUB_APP_ID,
       privateKey: process.env.GITHUB_PRIVATE_KEY.replace(/\\n/g, '\n'),
       clientId: process.env.GITHUB_CLIENT_ID,
       clientSecret: process.env.GITHUB_CLIENT_SECRET,
     });
+
+    console.log("App created:", !!app);
+    console.log("App.octokit exists:", !!app.octokit);
+
+    if (!app.octokit) {
+      return res.status(500).json({
+        status: "error",
+        message: "GitHub App octokit is undefined",
+        debug: {
+          ...envCheck,
+          appExists: !!app,
+          octokitExists: !!app.octokit
+        },
+        timestamp: new Date().toISOString()
+      });
+    }
 
     // Get installations
     const installations = await app.octokit.rest.apps.listInstallations();
