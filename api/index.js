@@ -14,6 +14,24 @@ module.exports = async (req, res) => {
   }
 
   try {
+    // Debug environment variables (safely)
+    const envCheck = {
+      hasAppId: !!process.env.GITHUB_APP_ID,
+      hasPrivateKey: !!process.env.GITHUB_PRIVATE_KEY,
+      hasClientId: !!process.env.GITHUB_CLIENT_ID,
+      hasClientSecret: !!process.env.GITHUB_CLIENT_SECRET,
+      appId: process.env.GITHUB_APP_ID ? process.env.GITHUB_APP_ID.substring(0, 3) + '...' : 'missing'
+    };
+
+    if (!process.env.GITHUB_APP_ID || !process.env.GITHUB_PRIVATE_KEY) {
+      return res.status(500).json({
+        status: "error",
+        message: "Missing required environment variables",
+        debug: envCheck,
+        timestamp: new Date().toISOString()
+      });
+    }
+
     // Test GitHub App connection
     const app = new App({
       appId: process.env.GITHUB_APP_ID,
@@ -29,6 +47,7 @@ module.exports = async (req, res) => {
       status: "success",
       message: "GitHub MCP Server is running!",
       installationsCount: installations.data.length,
+      debug: envCheck,
       timestamp: new Date().toISOString()
     });
 
@@ -37,6 +56,7 @@ module.exports = async (req, res) => {
     res.status(500).json({
       status: "error",
       message: error.message,
+      stack: error.stack,
       timestamp: new Date().toISOString()
     });
   }
