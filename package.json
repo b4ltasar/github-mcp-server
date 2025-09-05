@@ -2,6 +2,7 @@
   "name": "github-mcp-server",
   "version": "1.0.0",
   "description": "MCP server for GitHub integration",
+  "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
