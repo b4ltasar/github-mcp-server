@@ -61,10 +61,30 @@ module.exports = async (req, res) => {
       });
     }
 
-    if (path.startsWith('/repos/') && req.method === 'POST') {
-      // Create file endpoint
-      const body = JSON.parse(req.body || '{}');
+    if (path === '/repos/create-file' && req.method === 'POST') {
+      // Get request body - handle both parsed and raw body
+      let body;
+      if (typeof req.body === 'string') {
+        body = JSON.parse(req.body);
+      } else if (req.body && typeof req.body === 'object') {
+        body = req.body;
+      } else {
+        // Read raw body if not parsed
+        const chunks = [];
+        req.on('data', chunk => chunks.push(chunk));
+        await new Promise(resolve => req.on('end', resolve));
+        const rawBody = Buffer.concat(chunks).toString();
+        body = JSON.parse(rawBody);
+      }
+      
       const { owner, repo, path: filePath, content, message } = body;
+      
+      if (!owner || !repo || !filePath || !content || !message) {
+        return res.status(400).json({
+          status: "error",
+          message: "Missing required fields: owner, repo, path, content, message"
+        });
+      }
       
       const installations = await app.octokit.request('GET /app/installations');
       const installationOctokit = await app.getInstallationOctokit(installations.data[0].id);
@@ -80,7 +100,8 @@ module.exports = async (req, res) => {
       return res.status(200).json({
         status: "success",
         message: "File created successfully",
-        url: result.data.content.html_url
+        url: result.data.content.html_url,
+        path: filePath
       });
     }
 
