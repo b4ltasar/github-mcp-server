@@ -1,4 +1,4 @@
-// Test GitHub App step by step
+// Test GitHub App API structure
 module.exports = async (req, res) => {
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -11,78 +11,55 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // Step 1: Try to import packages
-    let App, Octokit;
-    try {
-      const octokitApp = require("@octokit/app");
-      const octokitRest = require("@octokit/rest");
-      App = octokitApp.App;
-      Octokit = octokitRest.Octokit;
-    } catch (importError) {
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to import Octokit packages",
-        error: importError.message,
-        timestamp: new Date().toISOString()
-      });
-    }
+    const { App } = require("@octokit/app");
 
-    // Step 2: Try to create App
-    let app;
-    try {
-      app = new App({
-        appId: process.env.GITHUB_APP_ID,
-        privateKey: process.env.GITHUB_PRIVATE_KEY.replace(/\\n/g, '\n'),
-        clientId: process.env.GITHUB_CLIENT_ID,
-        clientSecret: process.env.GITHUB_CLIENT_SECRET,
-      });
-    } catch (appError) {
-      return res.status(500).json({
-        status: "error",
-        message: "Failed to create GitHub App",
-        error: appError.message,
-        timestamp: new Date().toISOString()
-      });
-    }
+    const app = new App({
+      appId: process.env.GITHUB_APP_ID,
+      privateKey: process.env.GITHUB_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      clientId: process.env.GITHUB_CLIENT_ID,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET,
+    });
 
-    // Step 3: Check App properties
-    const appDebug = {
-      appExists: !!app,
-      hasOctokit: !!app.octokit,
-      appType: typeof app,
+    // Debug the octokit structure
+    const octokitDebug = {
+      octokitExists: !!app.octokit,
+      octokitKeys: app.octokit ? Object.keys(app.octokit) : [],
+      hasRest: !!app.octokit?.rest,
+      restKeys: app.octokit?.rest ? Object.keys(app.octokit.rest) : [],
+      hasApps: !!app.octokit?.rest?.apps,
       octokitType: typeof app.octokit,
-      appKeys: app ? Object.keys(app) : [],
     };
 
-    if (!app.octokit) {
-      return res.status(500).json({
-        status: "error",
-        message: "App created but octokit is undefined",
-        debug: appDebug,
-        timestamp: new Date().toISOString()
-      });
+    // Try different ways to access apps API
+    let installationsResult;
+    try {
+      // Method 1: Direct octokit call
+      if (app.octokit.request) {
+        installationsResult = await app.octokit.request('GET /app/installations');
+      }
+    } catch (method1Error) {
+      octokitDebug.method1Error = method1Error.message;
     }
 
-    // Step 4: Try to call API
+    // Method 2: Check if we need to get installation octokit first
+    let installationOctokit;
     try {
-      const installations = await app.octokit.rest.apps.listInstallations();
-      
-      res.status(200).json({
-        status: "success",
-        message: "GitHub App working!",
-        installationsCount: installations.data.length,
-        debug: appDebug,
-        timestamp: new Date().toISOString()
-      });
-    } catch (apiError) {
-      res.status(500).json({
-        status: "error",
-        message: "API call failed",
-        error: apiError.message,
-        debug: appDebug,
-        timestamp: new Date().toISOString()
-      });
+      const installations = await app.octokit.request('GET /app/installations');
+      if (installations.data.length > 0) {
+        installationOctokit = await app.getInstallationOctokit(installations.data[0].id);
+        octokitDebug.installationOctokitKeys = installationOctokit ? Object.keys(installationOctokit) : [];
+      }
+    } catch (method2Error) {
+      octokitDebug.method2Error = method2Error.message;
     }
+
+    res.status(200).json({
+      status: "debug",
+      message: "Octokit structure analysis",
+      debug: octokitDebug,
+      installationsResult: installationsResult?.data,
+      timestamp: new Date().toISOString()
+    });
 
   } catch (error) {
     res.status(500).json({
