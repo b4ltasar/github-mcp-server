@@ -1,4 +1,4 @@
-// Simple test endpoint first - just check env vars
+// Test GitHub App step by step
 module.exports = async (req, res) => {
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -11,26 +11,80 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // Just check environment variables first
-    const envCheck = {
-      hasAppId: !!process.env.GITHUB_APP_ID,
-      hasPrivateKey: !!process.env.GITHUB_PRIVATE_KEY,
-      hasClientId: !!process.env.GITHUB_CLIENT_ID,
-      hasClientSecret: !!process.env.GITHUB_CLIENT_SECRET,
-      appIdValue: process.env.GITHUB_APP_ID || 'NOT_SET',
-      privateKeyStart: process.env.GITHUB_PRIVATE_KEY ? process.env.GITHUB_PRIVATE_KEY.substring(0, 30) + '...' : 'NOT_SET',
-      allEnvKeys: Object.keys(process.env).filter(key => key.startsWith('GITHUB'))
+    // Step 1: Try to import packages
+    let App, Octokit;
+    try {
+      const octokitApp = require("@octokit/app");
+      const octokitRest = require("@octokit/rest");
+      App = octokitApp.App;
+      Octokit = octokitRest.Octokit;
+    } catch (importError) {
+      return res.status(500).json({
+        status: "error",
+        message: "Failed to import Octokit packages",
+        error: importError.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Step 2: Try to create App
+    let app;
+    try {
+      app = new App({
+        appId: process.env.GITHUB_APP_ID,
+        privateKey: process.env.GITHUB_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        clientId: process.env.GITHUB_CLIENT_ID,
+        clientSecret: process.env.GITHUB_CLIENT_SECRET,
+      });
+    } catch (appError) {
+      return res.status(500).json({
+        status: "error",
+        message: "Failed to create GitHub App",
+        error: appError.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Step 3: Check App properties
+    const appDebug = {
+      appExists: !!app,
+      hasOctokit: !!app.octokit,
+      appType: typeof app,
+      octokitType: typeof app.octokit,
+      appKeys: app ? Object.keys(app) : [],
     };
 
-    res.status(200).json({
-      status: "debug",
-      message: "Environment check",
-      debug: envCheck,
-      timestamp: new Date().toISOString()
-    });
+    if (!app.octokit) {
+      return res.status(500).json({
+        status: "error",
+        message: "App created but octokit is undefined",
+        debug: appDebug,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Step 4: Try to call API
+    try {
+      const installations = await app.octokit.rest.apps.listInstallations();
+      
+      res.status(200).json({
+        status: "success",
+        message: "GitHub App working!",
+        installationsCount: installations.data.length,
+        debug: appDebug,
+        timestamp: new Date().toISOString()
+      });
+    } catch (apiError) {
+      res.status(500).json({
+        status: "error",
+        message: "API call failed",
+        error: apiError.message,
+        debug: appDebug,
+        timestamp: new Date().toISOString()
+      });
+    }
 
   } catch (error) {
-    console.error('Error:', error);
     res.status(500).json({
       status: "error",
       message: error.message,
