@@ -1,4 +1,4 @@
-// Test GitHub App API structure
+// Working GitHub MCP Server
 module.exports = async (req, res) => {
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -20,52 +20,87 @@ module.exports = async (req, res) => {
       clientSecret: process.env.GITHUB_CLIENT_SECRET,
     });
 
-    // Debug the octokit structure
-    const octokitDebug = {
-      octokitExists: !!app.octokit,
-      octokitKeys: app.octokit ? Object.keys(app.octokit) : [],
-      hasRest: !!app.octokit?.rest,
-      restKeys: app.octokit?.rest ? Object.keys(app.octokit.rest) : [],
-      hasApps: !!app.octokit?.rest?.apps,
-      octokitType: typeof app.octokit,
-    };
-
-    // Try different ways to access apps API
-    let installationsResult;
-    try {
-      // Method 1: Direct octokit call
-      if (app.octokit.request) {
-        installationsResult = await app.octokit.request('GET /app/installations');
-      }
-    } catch (method1Error) {
-      octokitDebug.method1Error = method1Error.message;
-    }
-
-    // Method 2: Check if we need to get installation octokit first
-    let installationOctokit;
-    try {
+    // Handle different endpoints
+    const path = req.url || '/';
+    
+    if (path === '/test') {
+      // Test endpoint
       const installations = await app.octokit.request('GET /app/installations');
-      if (installations.data.length > 0) {
-        installationOctokit = await app.getInstallationOctokit(installations.data[0].id);
-        octokitDebug.installationOctokitKeys = installationOctokit ? Object.keys(installationOctokit) : [];
-      }
-    } catch (method2Error) {
-      octokitDebug.method2Error = method2Error.message;
+      
+      return res.status(200).json({
+        status: "success",
+        message: "GitHub MCP Server is working!",
+        installationsCount: installations.data.length,
+        installations: installations.data.map(inst => ({
+          id: inst.id,
+          account: inst.account.login,
+          permissions: Object.keys(inst.permissions)
+        })),
+        timestamp: new Date().toISOString()
+      });
     }
 
+    if (path === '/repos') {
+      // List repositories
+      const installations = await app.octokit.request('GET /app/installations');
+      if (installations.data.length === 0) {
+        return res.status(400).json({ error: "No installations found" });
+      }
+
+      const installationOctokit = await app.getInstallationOctokit(installations.data[0].id);
+      const repos = await installationOctokit.request('GET /installation/repositories');
+      
+      return res.status(200).json({
+        status: "success",
+        repositories: repos.data.repositories.map(repo => ({
+          name: repo.name,
+          full_name: repo.full_name,
+          private: repo.private,
+          url: repo.html_url
+        }))
+      });
+    }
+
+    if (path.startsWith('/repos/') && req.method === 'POST') {
+      // Create file endpoint
+      const body = JSON.parse(req.body || '{}');
+      const { owner, repo, path: filePath, content, message } = body;
+      
+      const installations = await app.octokit.request('GET /app/installations');
+      const installationOctokit = await app.getInstallationOctokit(installations.data[0].id);
+      
+      const result = await installationOctokit.request('PUT /repos/{owner}/{repo}/contents/{path}', {
+        owner,
+        repo,
+        path: filePath,
+        message,
+        content: Buffer.from(content).toString('base64')
+      });
+      
+      return res.status(200).json({
+        status: "success",
+        message: "File created successfully",
+        url: result.data.content.html_url
+      });
+    }
+
+    // Default endpoint - show available endpoints
     res.status(200).json({
-      status: "debug",
-      message: "Octokit structure analysis",
-      debug: octokitDebug,
-      installationsResult: installationsResult?.data,
+      status: "success",
+      message: "GitHub MCP Server is running!",
+      endpoints: {
+        "GET /test": "Test GitHub App connection",
+        "GET /repos": "List accessible repositories", 
+        "POST /repos/create-file": "Create a file (requires body: {owner, repo, path, content, message})"
+      },
       timestamp: new Date().toISOString()
     });
 
   } catch (error) {
+    console.error('Error:', error);
     res.status(500).json({
       status: "error",
       message: error.message,
-      stack: error.stack,
       timestamp: new Date().toISOString()
     });
   }
