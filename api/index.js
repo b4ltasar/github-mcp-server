@@ -1,4 +1,4 @@
-// Working GitHub MCP Server
+// Working GitHub + Figma MCP Server
 module.exports = async (req, res) => {
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -11,37 +11,49 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { App } = require("@octokit/app");
-
-    const app = new App({
-      appId: process.env.GITHUB_APP_ID,
-      privateKey: process.env.GITHUB_PRIVATE_KEY.replace(/\\n/g, '\n'),
-      clientId: process.env.GITHUB_CLIENT_ID,
-      clientSecret: process.env.GITHUB_CLIENT_SECRET,
-    });
-
     // Handle different endpoints
     const path = req.url || '/';
     
+    // GitHub endpoints
     if (path === '/test') {
-      // Test endpoint
+      const { App } = require("@octokit/app");
+      const app = new App({
+        appId: process.env.GITHUB_APP_ID,
+        privateKey: process.env.GITHUB_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        clientId: process.env.GITHUB_CLIENT_ID,
+        clientSecret: process.env.GITHUB_CLIENT_SECRET,
+      });
+
       const installations = await app.octokit.request('GET /app/installations');
       
       return res.status(200).json({
         status: "success",
-        message: "GitHub MCP Server is working!",
-        installationsCount: installations.data.length,
-        installations: installations.data.map(inst => ({
-          id: inst.id,
-          account: inst.account.login,
-          permissions: Object.keys(inst.permissions)
-        })),
+        message: "GitHub + Figma MCP Server is working!",
+        github: {
+          installationsCount: installations.data.length,
+          installations: installations.data.map(inst => ({
+            id: inst.id,
+            account: inst.account.login,
+            permissions: Object.keys(inst.permissions)
+          }))
+        },
+        figma: {
+          hasToken: !!process.env.FIGMA_ACCESS_TOKEN,
+          tokenStart: process.env.FIGMA_ACCESS_TOKEN ? process.env.FIGMA_ACCESS_TOKEN.substring(0, 8) + '...' : 'missing'
+        },
         timestamp: new Date().toISOString()
       });
     }
 
     if (path === '/repos') {
-      // List repositories
+      const { App } = require("@octokit/app");
+      const app = new App({
+        appId: process.env.GITHUB_APP_ID,
+        privateKey: process.env.GITHUB_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        clientId: process.env.GITHUB_CLIENT_ID,
+        clientSecret: process.env.GITHUB_CLIENT_SECRET,
+      });
+
       const installations = await app.octokit.request('GET /app/installations');
       if (installations.data.length === 0) {
         return res.status(400).json({ error: "No installations found" });
@@ -61,15 +73,133 @@ module.exports = async (req, res) => {
       });
     }
 
+    // Figma endpoints
+    if (path === '/figma/test') {
+      if (!process.env.FIGMA_ACCESS_TOKEN) {
+        return res.status(400).json({
+          status: "error",
+          message: "Figma access token not configured"
+        });
+      }
+
+      const response = await fetch('https://api.figma.com/v1/me', {
+        headers: {
+          'X-Figma-Token': process.env.FIGMA_ACCESS_TOKEN
+        }
+      });
+
+      if (!response.ok) {
+        return res.status(400).json({
+          status: "error",
+          message: `Figma API error: ${response.status} ${response.statusText}`
+        });
+      }
+
+      const userData = await response.json();
+      
+      return res.status(200).json({
+        status: "success",
+        message: "Figma API connection working!",
+        user: {
+          id: userData.id,
+          email: userData.email,
+          handle: userData.handle
+        },
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (path === '/figma/project') {
+      if (!process.env.FIGMA_ACCESS_TOKEN) {
+        return res.status(400).json({
+          status: "error",
+          message: "Figma access token not configured"
+        });
+      }
+
+      // Extract project ID from your URL: https://www.figma.com/files/project/70427346
+      const projectId = '70427346';
+      
+      const response = await fetch(`https://api.figma.com/v1/projects/${projectId}/files`, {
+        headers: {
+          'X-Figma-Token': process.env.FIGMA_ACCESS_TOKEN
+        }
+      });
+
+      if (!response.ok) {
+        return res.status(400).json({
+          status: "error",
+          message: `Figma API error: ${response.status} ${response.statusText}`
+        });
+      }
+
+      const projectData = await response.json();
+      
+      return res.status(200).json({
+        status: "success",
+        message: "Project files retrieved",
+        files: projectData.files.map(file => ({
+          key: file.key,
+          name: file.name,
+          thumbnail_url: file.thumbnail_url,
+          last_modified: file.last_modified
+        })),
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (path.startsWith('/figma/file/')) {
+      const fileKey = path.split('/')[3]; // Extract file key from URL
+      
+      const response = await fetch(`https://api.figma.com/v1/files/${fileKey}`, {
+        headers: {
+          'X-Figma-Token': process.env.FIGMA_ACCESS_TOKEN
+        }
+      });
+
+      if (!response.ok) {
+        return res.status(400).json({
+          status: "error",
+          message: `Figma API error: ${response.status} ${response.statusText}`
+        });
+      }
+
+      const fileData = await response.json();
+      
+      return res.status(200).json({
+        status: "success",
+        message: "File data retrieved",
+        file: {
+          name: fileData.name,
+          lastModified: fileData.lastModified,
+          version: fileData.version,
+          pages: fileData.document.children.map(page => ({
+            id: page.id,
+            name: page.name,
+            type: page.type
+          }))
+        },
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // GitHub file creation endpoint
     if (path === '/repos/create-file' && req.method === 'POST') {
-      // Get request body - handle both parsed and raw body
+      const { App } = require("@octokit/app");
+      const app = new App({
+        appId: process.env.GITHUB_APP_ID,
+        privateKey: process.env.GITHUB_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        clientId: process.env.GITHUB_CLIENT_ID,
+        clientSecret: process.env.GITHUB_CLIENT_SECRET,
+      });
+
+      // Get request body
       let body;
       if (typeof req.body === 'string') {
         body = JSON.parse(req.body);
       } else if (req.body && typeof req.body === 'object') {
         body = req.body;
       } else {
-        // Read raw body if not parsed
         const chunks = [];
         req.on('data', chunk => chunks.push(chunk));
         await new Promise(resolve => req.on('end', resolve));
@@ -108,11 +238,18 @@ module.exports = async (req, res) => {
     // Default endpoint - show available endpoints
     res.status(200).json({
       status: "success",
-      message: "GitHub MCP Server is running!",
+      message: "GitHub + Figma MCP Server is running!",
       endpoints: {
-        "GET /test": "Test GitHub App connection",
-        "GET /repos": "List accessible repositories", 
-        "POST /repos/create-file": "Create a file (requires body: {owner, repo, path, content, message})"
+        "GitHub": {
+          "GET /test": "Test GitHub App connection",
+          "GET /repos": "List accessible repositories", 
+          "POST /repos/create-file": "Create a file (requires body: {owner, repo, path, content, message})"
+        },
+        "Figma": {
+          "GET /figma/test": "Test Figma API connection",
+          "GET /figma/project": "List files in your project (70427346)",
+          "GET /figma/file/{fileKey}": "Get file details and structure"
+        }
       },
       timestamp: new Date().toISOString()
     });
