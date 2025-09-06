@@ -149,9 +149,101 @@ module.exports = async (req, res) => {
     }
 
     if (path.startsWith('/figma/file/')) {
-      const fileKey = path.split('/')[3]; // Extract file key from URL
+      const pathParts = path.split('/');
+      const fileKey = pathParts[3]; // Extract file key from URL
+      const nodeId = pathParts[4]; // Optional node ID for specific components
       
-      const response = await fetch(`https://api.figma.com/v1/files/${fileKey}`, {
+      let apiUrl = `https://api.figma.com/v1/files/${fileKey}`;
+      if (nodeId) {
+        // Get specific nodes if node ID is provided
+        apiUrl += `?ids=${nodeId}&depth=2`;
+      }
+      
+      const response = await fetch(apiUrl, {
+        headers: {
+          'X-Figma-Token': process.env.FIGMA_ACCESS_TOKEN
+        }
+      });
+
+      if (!response.ok) {
+        return res.status(400).json({
+          status: "error",
+          message: `Figma API error: ${response.status} ${response.statusText}`
+        });
+      }
+
+      const fileData = await response.json();
+      
+      if (nodeId && fileData.nodes) {
+        // Return specific node data
+        return res.status(200).json({
+          status: "success",
+          message: "Node data retrieved",
+          node: fileData.nodes[nodeId],
+          timestamp: new Date().toISOString()
+        });
+      }
+      
+      // Process pages and extract relevant design data
+      const processedPages = fileData.document.children.map(page => {
+        const processNode = (node) => {
+          const baseData = {
+            id: node.id,
+            name: node.name,
+            type: node.type,
+          };
+
+          // Add specific properties for different node types
+          if (node.fills) baseData.fills = node.fills;
+          if (node.strokes) baseData.strokes = node.strokes;
+          if (node.effects) baseData.effects = node.effects;
+          if (node.absoluteBoundingBox) baseData.bounds = node.absoluteBoundingBox;
+          if (node.constraints) baseData.constraints = node.constraints;
+          if (node.characters) baseData.text = node.characters;
+          if (node.style) baseData.textStyle = node.style;
+
+          // Recursively process children (limited depth for performance)
+          if (node.children && node.children.length > 0) {
+            baseData.children = node.children.map(processNode);
+          }
+
+          return baseData;
+        };
+
+        return {
+          id: page.id,
+          name: page.name,
+          type: page.type,
+          children: page.children ? page.children.map(processNode) : []
+        };
+      });
+      
+      return res.status(200).json({
+        status: "success",
+        message: "File data retrieved",
+        file: {
+          name: fileData.name,
+          lastModified: fileData.lastModified,
+          version: fileData.version,
+          pages: processedPages
+        },
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (path.startsWith('/figma/page/')) {
+      const pathParts = path.split('/');
+      const fileKey = pathParts[3];
+      const pageId = pathParts[4];
+      
+      if (!fileKey || !pageId) {
+        return res.status(400).json({
+          status: "error",
+          message: "File key and page ID required"
+        });
+      }
+      
+      const response = await fetch(`https://api.figma.com/v1/files/${fileKey}?ids=${pageId}&depth=3`, {
         headers: {
           'X-Figma-Token': process.env.FIGMA_ACCESS_TOKEN
         }
@@ -168,17 +260,8 @@ module.exports = async (req, res) => {
       
       return res.status(200).json({
         status: "success",
-        message: "File data retrieved",
-        file: {
-          name: fileData.name,
-          lastModified: fileData.lastModified,
-          version: fileData.version,
-          pages: fileData.document.children.map(page => ({
-            id: page.id,
-            name: page.name,
-            type: page.type
-          }))
-        },
+        message: "Page data retrieved",
+        page: fileData.nodes[pageId],
         timestamp: new Date().toISOString()
       });
     }
@@ -248,7 +331,9 @@ module.exports = async (req, res) => {
         "Figma": {
           "GET /figma/test": "Test Figma API connection",
           "GET /figma/project": "List files in your project (70427346)",
-          "GET /figma/file/{fileKey}": "Get file details and structure"
+          "GET /figma/file/{fileKey}": "Get file details and structure",
+          "GET /figma/file/{fileKey}/{nodeId}": "Get specific node details",
+          "GET /figma/page/{fileKey}/{pageId}": "Get specific page content"
         }
       },
       timestamp: new Date().toISOString()
